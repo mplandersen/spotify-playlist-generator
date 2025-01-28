@@ -55,55 +55,69 @@ class SpotifyPlaylistGenerator:
         )
         return playlist['id']
 
-    def process_csv_and_create_playlist(self, playlist_name, csv_path):
+    def process_csv_and_create_playlist(self, playlist_name, csv_path, min_rating=0, min_year=None, max_year=None):
         """
-        Process the CSV file and create a new Spotify playlist.
+        Create playlist from albums that meet rating and year criteria.
         
-        :param csv_path: Path to the CSV file
         :param playlist_name: Name for the new playlist
-        :return: None
+        :param csv_path: Path to CSV file
+        :param min_rating: Minimum rating to include (1-10)
+        :param min_year: Earliest year to include
+        :param max_year: Latest year to include
+        :return: Dictionary with results
         """
         track_ids = []
-        failed_tracks = []
+        failed_albums = []
         
-        # Read CSV and search for tracks
         with open(csv_path, 'r', encoding='utf-8') as csvfile:
             reader = csv.DictReader(csvfile)
             for row in reader:
-                song_name = row['Track_Name']  # Adjust column name as needed
-                artist = row['Artist_Name']   # Adjust column name as needed
+                # Check if album meets criteria
+                rating = float(row['Rating']) if row['Rating'] else 0
+                year = row['Release_Date']
                 
-                track_id = self.search_track(song_name, artist)
+                # Skip if doesn't meet rating/year criteria
+                if rating < min_rating:
+                    continue
+                if min_year and year < min_year:
+                    continue
+                if max_year and year > max_year:
+                    continue
+                    
+                # Get artist name (either localized or original)
+                artist = row['Last Name localized'] if row['Last Name localized'] else row['Last Name']
+                album_name = row['Title']
                 
-                if track_id:
-                    track_ids.append(track_id)
-                else:
-                    failed_tracks.append({
-                        'song': song_name,
-                        'artist': artist
+                try:
+                    # Search for album instead of track
+                    results = self.sp.search(f"album:{album_name} artist:{artist}", type='album', limit=1)
+                    
+                    if results['albums']['items']:
+                        album_id = results['albums']['items'][0]['id']
+                        # Get all tracks from the album
+                        album_tracks = self.sp.album_tracks(album_id)
+                        track_ids.extend([track['id'] for track in album_tracks['items']])
+                    else:
+                        failed_albums.append({
+                            'album': album_name,
+                            'artist': artist,
+                            'rating': rating,
+                            'year': year
+                        })
+                except Exception as e:
+                    print(f"Error processing {album_name}: {str(e)}")
+                    failed_albums.append({
+                        'album': album_name,
+                        'artist': artist,
+                        'rating': rating,
+                        'year': year,
+                        'error': str(e)
                     })
-        
-        # Create playlist if tracks were found
-        if track_ids:
-            playlist_id = self.create_playlist(
-                playlist_name,
-                f"Playlist generated from {csv_path}"
-            )
-            
-            # Add tracks to playlist (Spotify has a 100 track limit per request)
-            for i in range(0, len(track_ids), 100):
-                batch = track_ids[i:i + 100]
-                self.sp.playlist_add_items(playlist_id, batch)
-            
-            playlist_url = f"https://open.spotify.com/playlist/{playlist_id}"
-        else:
-            playlist_url = None
-        
+
         return {
-            'playlist_url': playlist_url,
-            'total_tracks_found': len(track_ids),
-            'total_tracks_failed': len(failed_tracks),
-            'failed_tracks': failed_tracks
+            'total_albums_found': len(track_ids),
+            'failed_albums': failed_albums,
+            'track_ids': track_ids
         }
 
 def main():

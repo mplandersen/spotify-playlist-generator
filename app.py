@@ -21,51 +21,46 @@ def allowed_file(filename):
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if request.method == 'POST':
-        # Check if a file was uploaded
         if 'file' not in request.files:
             flash('No file selected')
             return redirect(request.url)
         
         file = request.files['file']
         playlist_name = request.form.get('playlist_name', 'My Generated Playlist')
+        min_rating = float(request.form.get('min_rating', 0))
+        min_year = request.form.get('min_year')
+        max_year = request.form.get('max_year')
         
         if file.filename == '':
             flash('No file selected')
             return redirect(request.url)
         
         if file and allowed_file(file.filename):
-            # Save the uploaded file
             filename = secure_filename(file.filename)
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            file.save(filepath)
             
             try:
-                # Generate playlist
+                file.save(filepath)
                 generator = SpotifyPlaylistGenerator()
                 results = generator.process_csv_and_create_playlist(
                     playlist_name=playlist_name,
-                    csv_path=filepath
+                    csv_path=filepath,
+                    min_rating=min_rating,
+                    min_year=min_year,
+                    max_year=max_year
                 )
                 
-                # Clean up the uploaded file
                 os.remove(filepath)
                 
                 return render_template(
                     'index.html',
-                    results=results,
-                    playlist_url=results.get('playlist_url'),
-                    total_tracks_found=results.get('total_tracks_found', 0),
-                    failed_tracks=results.get('failed_tracks', [])
+                    results=results
                 )
                 
             except Exception as e:
                 flash(f'Error: {str(e)}')
                 return redirect(request.url)
                 
-        else:
-            flash('Invalid file type. Please upload a CSV file.')
-            return redirect(request.url)
-            
     return render_template('index.html')
 
 if __name__ == '__main__':
